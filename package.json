@@ -1,0 +1,16 @@
+{
+  "name": "portal-gun",
+  "version": "1.0.0",
+  "description": "Portal Gun Build using Raspberry Pi Zero W",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "Christian Schüler",
+  "license": "ISC",
+  "dependencies": {
+    "i2c-bus": "^5.2.3"
+  }
+}
