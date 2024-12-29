@@ -48,35 +48,34 @@ try {
 
   console.log("ready.");
 
-  let data = Buffer.alloc(16);
-  let x = [];
-  let y = [];
-
+  let data = Buffer.alloc(12);
+  
   console.log("Reading positions...");
   while (true) {
     await bus.sendByte(camAddress, 0x36);
-    let dataLen = await bus.i2cRead(camAddress, 16, data);
-    console.log(util.inspect(data));
+    console.log(await bus.receiveByte(camAddress));   // always 0???? skip it
+    let dataLen = await bus.i2cRead(camAddress, 12, data);
+    console.log(util.inspect(dataLen));
 
     // see https://wiibrew.org/wiki/Wiimote#Data_Formats
     trackedPoints[0].valid = data[0] != 0xFF;
-    trackedPoints[0].x = data[1] + ((data[3] & 0x30) << 4);
-    trackedPoints[0].y = data[2] + ((data[3] & 0xC0) << 2);
-    trackedPoints[0].size = data[3] & 0x0F;
+    trackedPoints[0].x = data[0] + ((data[2] & 0x30) << 4);
+    trackedPoints[0].y = data[1] + ((data[2] & 0xC0) << 2);
+    trackedPoints[0].size = data[2] & 0x0F;
 
-    trackedPoints[1].valid = data[4] != 0xFF;
-    trackedPoints[1].x = data[4] + ((data[6] & 0x30) << 4);
-    trackedPoints[1].y = data[5] + ((data[6] & 0xC0) << 2);
+    trackedPoints[1].valid = data[3] != 0xFF;
+    trackedPoints[1].x = data[3] + ((data[5] & 0x30) << 4);
+    trackedPoints[1].y = data[4] + ((data[5] & 0xC0) << 2);
     trackedPoints[1].size = data[5] & 0x0F;
 
-    trackedPoints[2].valid = data[7] != 0xFF;
-    trackedPoints[2].x = data[7] + ((data[9] & 0x30) << 4);
-    trackedPoints[2].y = data[8] + ((data[9] & 0xC0) << 2);
+    trackedPoints[2].valid = data[6] != 0xFF;
+    trackedPoints[2].x = data[6] + ((data[8] & 0x30) << 4);
+    trackedPoints[2].y = data[7] + ((data[8] & 0xC0) << 2);
     trackedPoints[2].size = data[8] & 0x0F;
 
-    trackedPoints[3].valid = data[10] != 0xFF;
-    trackedPoints[3].x = data[10] + ((data[12] & 0x30) << 4);
-    trackedPoints[3].y = data[11] + ((data[12] & 0xC0) << 2);
+    trackedPoints[3].valid = data[9] != 0xFF;
+    trackedPoints[3].x = data[9] + ((data[11] & 0x30) << 4);
+    trackedPoints[3].y = data[10] + ((data[11] & 0xC0) << 2);
     trackedPoints[3].size = data[11] & 0x0F;
 
     console.log(trackedPoints);
