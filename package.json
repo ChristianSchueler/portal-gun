@@ -11,6 +11,7 @@
   "author": "Christian Schüler",
   "license": "ISC",
   "dependencies": {
-    "i2c-bus": "^5.2.3"
+    "i2c-bus": "^5.2.3",
+    "vector2js": "^2.0.1"
   }
 }
