@@ -82,7 +82,7 @@ class DfRobotIRSensorCam {
 
     if (this.bus == undefined || this.camAddress == undefined) return false;
    
-    await bus.sendByte(this.camAddress, 0x36);
+    await this.bus.sendByte(this.camAddress, 0x36);
     console.log(await this.bus.receiveByte(this.camAddress));   // always 0???? skip it
     let dataLen = await this.bus.i2cRead(this.camAddress, 12, this.data);
     console.log(util.inspect(dataLen));
@@ -130,7 +130,7 @@ class LightGun {
     
     // skip when num valid (!) points < 3!!!
     let numValidPoints = 0;
-    trackedPoints.array.forEach((point, index) => {
+    trackedPoints.forEach((point, index) => {
       if (point.valid) numValidPoints++;
     });
 
@@ -146,14 +146,14 @@ class LightGun {
     let i_min_x = 0;                      // -> index of leftmost point
     // find leftmost point index
     let x_min = SENSOR_X_MAX_PX;     // -> coordinate of leftmost point
-    trackedPoints.array.forEach((point, index) => {
+    trackedPoints.forEach((point, index) => {
       if (point.valid && point.x < x_min) { i_min_x = index; x_min = point.x; }   // if more left, remember index
     });
 
     // find leftmost point from remaining points, excluding former leftmost point, i.e. quadrant seerator coordinate
-    x_min = SENSOR_X_MAX_PX;         // -> coordinate of second leftmost point
-    trackedPoints.array.forEach((point, index) => {
-      if (point.valid && index != i_min_x && point.x < x_min) { x_c = point.x; }  // if more left, remember index, now as x_c
+    x_c = SENSOR_X_MAX_PX;         // -> coordinate of second leftmost point
+    trackedPoints.forEach((point, index) => {
+      if (point.valid && index != i_min_x && point.x < x_c) { x_c = point.x; }  // if more left, remember index, now as x_c
     });
     
     // ----- y_c -----
@@ -161,24 +161,27 @@ class LightGun {
     let i_min_y = 0;                      // -> index of topmost point
     // find topmost point index
     let y_min = SENSOR_Y_MAX_PX;     // -> coordinate of topmost point
-    trackedPoints.array.forEach((point, index) => {
+    trackedPoints.forEach((point, index) => {
       if (point.valid && point.y < y_min) { i_min_y = index; y_min = point.y; }   // if more on top, remember index
     });
+    console.log("i_min_y=", i_min_y);
 
     // find topmost point from remaining points, excluding former topmost point, i.e. quadrant seperator coordinate
-    y_min = SENSOR_Y_MAX_PX;         // -> coordinate of second topmost point
-    trackedPoints.array.forEach((point, index) => {
-      if (point.valid && index != i_min_y && point.y < y_min) { y_c = point.y; }  // if more on top, remember index, now as y_c
+    y_c = SENSOR_Y_MAX_PX;         // -> coordinate of second topmost point
+    trackedPoints.forEach((point, index) => {
+      if (point.valid && index != i_min_y && point.y < y_c) { y_c = point.y; }  // if more on top, remember index, now as y_c
     });
+
+    console.log("x_c, y_c=", x_c, y_c);
 
     // ----- orderedPoints array -----
 
     // build orderedPoints array with points at the right location, from 00 to 10 to 11 to 01
-    trackedPoints.array.forEach((point, index) => {
+    trackedPoints.forEach((point, index) => {
       
       let orderedIndex = 0;
       // decide which quadrant the point is in
-      if (point.x <= c_x) {   // LEFT
+      if (point.x <= x_c) {   // LEFT
         if (point.y <= y_c) orderedIndex = TOP_LEFT_00;   // TOP
         else orderedIndex = BOTTOM_LEFT_01;   // BOTTOM
       }
@@ -187,9 +190,13 @@ class LightGun {
         else orderedIndex = BOTTOM_RIGHT_11;   // BOTTOM
       }
 
+      console.log(orderedIndex, point);
+
       // create a cloned copy (ahem... a pleonasm... https://en.wikipedia.org/wiki/Pleonasm) at the right position
       this.orderedPoints[orderedIndex] = structuredClone(point);
     });
+
+    console.log(util.inspect(this.orderedPoints));
 
     return numValidPoints;    // orderedPoints now valid
   }
@@ -218,6 +225,7 @@ class LightGun {
       let u_00 = p_10.sub(p_00);
       let v_00 = p_01.sub(p_00);
 
+      // TODO, not in range 0... 1? why
       let u = c_00.dot(u_00) / u_00.length();   // project c onto u and normalize, so we do not use pixels any more
       let v = c_00.dot(v_00) / v_00.length();   // project c onto v and normalize, so we do not use pixels any more
 
