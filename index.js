@@ -3,18 +3,24 @@ import { exit } from 'process';
 import * as util from 'util';
 import Vector from 'vector2js';
 
-// var vector1 = new Vector(10, 10);
-// var vector2 = new Vector(5, 5);
-// console.log("result: " + vector1.add(vector2).toString());
-
-let camAddress = 0;   // probably 88
+// for dfrobot IR sensor cam
 const sensivityBlock1 = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x90, 0x00, 0xC0];
 const sensivityBlock2 = [0x40, 0x00];
+const SENSOR_X_MAX_PX = 1023;
+const SENSOR_Y_MAX_PX = 767;
 
+// name and position association po points with array indices
+const TOP_LEFT_00 = 0;
+const TOP_RIGHT_10 = 1;
+const BOTTOM_RIGHT_11 = 2;
+const BOTTOM_LEFT_01 = 3;
+
+// async sleep
 export function sleep(duration_ms) {
 	return new Promise(resolve => setTimeout(resolve, duration_ms));
 }
 
+// holds a single point from the sensor
 class TrackedPoint {
   index = 0;        // 0 .. 3, 0 equals 00, 1 equals 10, 2 equals 11, 3 equals 01 position
   valid = false;
@@ -25,26 +31,101 @@ class TrackedPoint {
   constructor(index) { this.index = index; }
 }
 
-// name and position association po points with array indices
-const TOP_LEFT_00 = 0;
-const TOP_RIGHT_10 = 1;
-const BOTTOM_RIGHT_11 = 2;
-const BOTTOM_LEFT_01 = 3;
-const SENSOR_X_MAX_PX = 1023;
-const SENSOR_Y_MAX_PX = 767;
+// an interface into the sensor, using i2c
+class DfRobotIRSensorCam {
+  trackedPoints = [];         // this always holds the latest sensor data
+  data = undefined;           // Buffer holding raw data from i2c bus
+  bus = undefined;            // ... speaking of... i2c bus
+  camAddress = 0;     // where to speak to the cam
 
+  // connect to i2c and configure camera
+  // @return true when successful, false otherwise. async.
+  async initialize() {
+
+    console.log("Setting up DfRobotIRSensorCam...");
+
+    console.log("Opening i2c bus...");
+    this.bus = await openPromisified(1);
+
+    //let i2cFuncs = await bus.i2cFuncs();
+    //console.log("available functions:", i2cFuncs);
+
+    console.log("Scanning for i2c devices...");
+    let devices = await this.bus.scan();
+
+    console.log("i2c devices:", util.inspect(devices));
+
+    if (devices && devices.length > 0) this.camAddress = devices[0];   // get first address
+    if (this.camAddress == 0) return false;
+
+    console.log("initializing IR cam at address", this.camAddress, "...");
+    
+    await this.bus.writeByte(this.camAddress, 0x30, 0x01);
+    await this.bus.writeByte(this.camAddress, 0x30, 0x08);
+    await this.bus.writeI2cBlock(this.camAddress, 0x00, sensivityBlock1.length, Buffer.from(sensivityBlock1));
+    await this.bus.writeI2cBlock(this.camAddress, 0x1A, sensivityBlock2.length, Buffer.from(sensivityBlock2));
+    await this.bus.writeByte(this.camAddress, 0x33, 0x03);  // select mode: 1, 3 or 5, currently using mode 3, needing 12 byte buffer
+    await this.bus.writeByte(this.camAddress, 0x30, 0x08);
+
+    console.log("DfRobotIRSensorCam ready.");
+
+    // set up internal state
+    this.data = Buffer.alloc(12);
+    this.trackedPoints = new Array(4).fill().map((value, index) => { return new TrackedPoint(index); });
+
+    return true;    // success
+  }
+
+  // read data from sensor into trackedPoints
+  // return true or false
+  async getData() {
+
+    if (this.bus == undefined || this.camAddress == undefined) return false;
+   
+    await bus.sendByte(this.camAddress, 0x36);
+    console.log(await this.bus.receiveByte(this.camAddress));   // always 0???? skip it
+    let dataLen = await this.bus.i2cRead(this.camAddress, 12, this.data);
+    console.log(util.inspect(dataLen));
+
+    // see https://wiibrew.org/wiki/Wiimote#Data_Formats
+    this.trackedPoints[0].valid = this.data[0] != 0xFF;
+    this.trackedPoints[0].x = this.data[0] + ((this.data[2] & 0x30) << 4);
+    this.trackedPoints[0].y = this.data[1] + ((this.data[2] & 0xC0) << 2);
+    this.trackedPoints[0].size = this.data[2] & 0x0F;
+
+    this.trackedPoints[1].valid = this.data[3] != 0xFF;
+    this.trackedPoints[1].x = this.data[3] + ((this.data[5] & 0x30) << 4);
+    this.trackedPoints[1].y = this.data[4] + ((this.data[5] & 0xC0) << 2);
+    this.trackedPoints[1].size = this.data[5] & 0x0F;
+
+    this.trackedPoints[2].valid = this.data[6] != 0xFF;
+    this.trackedPoints[2].x = this.data[6] + ((this.data[8] & 0x30) << 4);
+    this.trackedPoints[2].y = this.data[7] + ((this.data[8] & 0xC0) << 2);
+    this.trackedPoints[2].size = this.data[8] & 0x0F;
+
+    this.trackedPoints[3].valid = this.data[9] != 0xFF;
+    this.trackedPoints[3].x = this.data[9] + ((this.data[11] & 0x30) << 4);
+    this.trackedPoints[3].y = this.data[10] + ((this.data[11] & 0xC0) << 2);
+    this.trackedPoints[3].size = this.data[11] & 0x0F;
+
+    console.log(this.trackedPoints);
+
+    return true;
+  }
+}
+
+// does the computation from sensor data to light gun screen coordinates
 class LightGun {
   hit = false;    // when hit=true, x and y are valid
   x = 0.5;        // x and y in [0; 1], 0.5 being the center of the screen
   y = 0.5;
-  orderedPoints = undefined;    // keep a persistent copy to improve performance (don't allocate memory for every clock cycle)
+  orderedPoints = [];    // keep a persistent copy to improve performance (don't allocate memory for every clock cycle)
 
-  constructor(trackedPoints) {
-    this.orderedPoints = [...trackedPoints];    // create a copy
+  constructor() {
   }
 
   // get new points and copy (clone) then in the order of quadrants into the orderedPoints array
-  // @return false when not enough points, true otherwise. when true, orderedPoints now contains valid data
+  // @return number of valid points. when >= 3, orderedPoints now contains valid data
   updatePoints(trackedPoints) {
     
     // skip when num valid (!) points < 3!!!
@@ -54,7 +135,7 @@ class LightGun {
     });
 
     // cancel computation and return false
-    if (numValidPoints < 3) return false;
+    if (numValidPoints < 3) return numValidPoints;
     
     // first, separate all points into 4 quadrants
     let x_c = SENSOR_X_MAX_PX;   // all points <= x_c are left, all points > x_c are right
@@ -110,83 +191,73 @@ class LightGun {
       this.orderedPoints[orderedIndex] = structuredClone(point);
     });
 
-    return true;    // orderedPoints now valid
+    return numValidPoints;    // orderedPoints now valid
   }
 
   // does the heavy computation of current light points detected to screen position
-  compute() {
+  compute(trackedPoints) {
 
+    let numValidPoints = this.updatePoints(trackedPoints);
+
+    if (numValidPoints < 3) {
+      this.hit = false;
+      return;
+    }
+
+    // for conveniance
+    let c_0 = new Vector(SENSOR_X_MAX_PX / 2, SENSOR_Y_MAX_PX / 2);   // center of sensor camera
+    let p_00 = new Vector(this.orderedPoints[TOP_LEFT_00].x, this.orderedPoints[TOP_LEFT_00].y);
+    let p_10 = new Vector(this.orderedPoints[TOP_RIGHT_10].x, this.orderedPoints[TOP_RIGHT_10].y);
+    let p_11 = new Vector(this.orderedPoints[BOTTOM_RIGHT_11].x, this.orderedPoints[BOTTOM_RIGHT_11].y);
+    let p_01 = new Vector(this.orderedPoints[BOTTOM_LEFT_01].x, this.orderedPoints[BOTTOM_LEFT_01].y);
+
+    if (this.orderedPoints[TOP_LEFT_00].valid && this.orderedPoints[TOP_RIGHT_10].valid && this.orderedPoints[BOTTOM_LEFT_01].valid) {
+
+      // create vectors spanning "points plane"
+      let c_00 = c_0.sub(p_00);
+      let u_00 = p_10.sub(p_00);
+      let v_00 = p_01.sub(p_00);
+
+      let u = c_00.dot(u_00) / u_00.length();   // project c onto u and normalize, so we do not use pixels any more
+      let v = c_00.dot(v_00) / v_00.length();   // project c onto v and normalize, so we do not use pixels any more
+
+      this.hit = (u >= 0 && u <= 1 && v >= 0 && v <= 1);
+      this.x = u;
+      this.y = v;
+    }
+    else console.log('not yet implemented');
   }
+
 }
 
-let trackedPoints = new Array(4).fill().map((value, index) => { return new TrackedPoint(index); })
+// ----- main -----
+const sensor = new DfRobotIRSensorCam();
+const lightGun = new LightGun();
 
 try {
-  console.log("Opening i2c bus...");
-  const bus = await openPromisified(1);
-
-  //let i2cFuncs = await bus.i2cFuncs();
-  //console.log("available functions:", i2cFuncs);
-
-  console.log("Scanning for i2c devices...");
-  let devices = await bus.scan();
-
-  console.log("i2c devices:", util.inspect(devices));
-
-  if (devices && devices.length > 0) camAddress = devices[0];   // grad first address
-  if (camAddress == 0) process.exit(1);
-
-  console.log("initializing IR cam at adress", camAddress, "...");
   
-  await bus.writeByte(camAddress, 0x30, 0x01);  //
-  await bus.writeByte(camAddress, 0x30, 0x08);
-  await bus.writeI2cBlock(camAddress, 0x00, sensivityBlock1.length, Buffer.from(sensivityBlock1));
-  await bus.writeI2cBlock(camAddress, 0x1A, sensivityBlock2.length, Buffer.from(sensivityBlock2));
-  await bus.writeByte(camAddress, 0x33, 0x03);  // select mode: 1, 3 or 5
-  await bus.writeByte(camAddress, 0x30, 0x08);
+  let ok = await sensor.initialize();
+  if (!ok) { console.log("no sensor found! exiting."); process.exit(1); }
 
-  console.log("ready.");
-
-  let data = Buffer.alloc(12);
-  
-  console.log("Reading positions...");
   while (true) {
-    await bus.sendByte(camAddress, 0x36);
-    console.log(await bus.receiveByte(camAddress));   // always 0???? skip it
-    let dataLen = await bus.i2cRead(camAddress, 12, data);
-    console.log(util.inspect(dataLen));
 
-    // see https://wiibrew.org/wiki/Wiimote#Data_Formats
-    trackedPoints[0].valid = data[0] != 0xFF;
-    trackedPoints[0].x = data[0] + ((data[2] & 0x30) << 4);
-    trackedPoints[0].y = data[1] + ((data[2] & 0xC0) << 2);
-    trackedPoints[0].size = data[2] & 0x0F;
+    await sensor.getData();
+    lightGun.compute(sensor.trackedPoints);
 
-    trackedPoints[1].valid = data[3] != 0xFF;
-    trackedPoints[1].x = data[3] + ((data[5] & 0x30) << 4);
-    trackedPoints[1].y = data[4] + ((data[5] & 0xC0) << 2);
-    trackedPoints[1].size = data[5] & 0x0F;
-
-    trackedPoints[2].valid = data[6] != 0xFF;
-    trackedPoints[2].x = data[6] + ((data[8] & 0x30) << 4);
-    trackedPoints[2].y = data[7] + ((data[8] & 0xC0) << 2);
-    trackedPoints[2].size = data[8] & 0x0F;
-
-    trackedPoints[3].valid = data[9] != 0xFF;
-    trackedPoints[3].x = data[9] + ((data[11] & 0x30) << 4);
-    trackedPoints[3].y = data[10] + ((data[11] & 0xC0) << 2);
-    trackedPoints[3].size = data[11] & 0x0F;
-
-    console.log(trackedPoints);
+    console.log("Lightgun: ", lightGun.hit, lightGun.x, lightGun.y);
 
     await sleep(1000);
   }
 }
 catch (err) {
-  if (err) console.log("i2c error:", err);
+  if (err) console.log("Generic error:", err);
 }
 
 // TODO
 // bus.close(err => {
 //   if (err) throw err;
 // });
+
+process.on('SIGINT', () => { console.log("SIGINT"); });  // CTRL+C
+process.on('SIGQUIT', () => { console.log("SIGQUIT"); }); // Keyboard quit
+process.on('SIGTERM', () => { console.log("SIGTERM"); }); // `kill` command
