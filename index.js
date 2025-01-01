@@ -225,9 +225,9 @@ class LightGun {
       let u_00 = p_10.sub(p_00);
       let v_00 = p_01.sub(p_00);
 
-      // TODO, not in range 0... 1? why
-      let u = c_00.dot(u_00) / u_00.length();   // project c onto u and normalize, so we do not use pixels any more
-      let v = c_00.dot(v_00) / v_00.length();   // project c onto v and normalize, so we do not use pixels any more
+      // compute screen coordinates in 0..1 space
+      let u = c_00.dot(u_00.normalize()) / u_00.length();   // project c onto u and scale to length of u, so we do not use pixels any more
+      let v = c_00.dot(v_00.normalize()) / v_00.length();   // project c onto v and scale to length of v, so we do not use pixels any more
 
       this.hit = (u >= 0 && u <= 1 && v >= 0 && v <= 1);
       this.x = u;
