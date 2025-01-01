@@ -12,6 +12,7 @@
   "license": "ISC",
   "dependencies": {
     "i2c-bus": "^5.2.3",
+    "terminal-kit": "^3.1.1",
     "vector2js": "^2.0.1"
   }
 }

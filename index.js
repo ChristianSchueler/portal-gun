@@ -2,6 +2,7 @@ import { openPromisified } from 'i2c-bus';
 import { exit } from 'process';
 import * as util from 'util';
 import Vector from 'vector2js';
+import terminal from 'terminal-kit';
 
 // for dfrobot IR sensor cam
 const sensivityBlock1 = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x90, 0x00, 0xC0];
@@ -252,9 +253,13 @@ try {
     await sensor.getData();
     lightGun.compute(sensor.trackedPoints);
 
+    // temp
+    terminal.terminal.clear();
+    terminal.terminal.moveTo(1, 1);
+
     console.log("Lightgun: ", lightGun.hit, lightGun.x, lightGun.y);
 
-    await sleep(1000);
+    await sleep(10);
   }
 }
 catch (err) {
