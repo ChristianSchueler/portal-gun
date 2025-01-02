@@ -83,10 +83,14 @@ class DfRobotIRSensorCam {
 
     if (this.bus == undefined || this.camAddress == undefined) return false;
    
+    console.log("Requesting sensor data...");
     await this.bus.sendByte(this.camAddress, 0x36);
-    console.log(await this.bus.receiveByte(this.camAddress));   // always 0???? skip it
-    let dataLen = await this.bus.i2cRead(this.camAddress, 12, this.data);
-    console.log(util.inspect(dataLen));
+
+    let temp = await this.bus.receiveByte(this.camAddress);   // always 0???? skip it
+    console.log("what is this for?:", temp);
+
+    let sensorResult = await this.bus.i2cRead(this.camAddress, 12, this.data);
+    console.log("sensorResult:", util.inspect(sensorResult));
 
     // see https://wiibrew.org/wiki/Wiimote#Data_Formats
     this.trackedPoints[0].valid = this.data[0] != 0xFF;
@@ -109,7 +113,7 @@ class DfRobotIRSensorCam {
     this.trackedPoints[3].y = this.data[10] + ((this.data[11] & 0xC0) << 2);
     this.trackedPoints[3].size = this.data[11] & 0x0F;
 
-    console.log(this.trackedPoints);
+    console.log("trackedPoints:", this.trackedPoints);
 
     return true;
   }
@@ -134,6 +138,8 @@ class LightGun {
     trackedPoints.forEach((point, index) => {
       if (point.valid) numValidPoints++;
     });
+
+    console.log("Valid points:", numValidPoints);
 
     // cancel computation and return false
     if (numValidPoints < 3) return numValidPoints;
@@ -177,6 +183,8 @@ class LightGun {
 
     // ----- orderedPoints array -----
 
+    let quadrantUsed = [false, false, false, false];    // used for verification
+
     // build orderedPoints array with points at the right location, from 00 to 10 to 11 to 01
     trackedPoints.forEach((point, index) => {
       
@@ -191,13 +199,18 @@ class LightGun {
         else orderedIndex = BOTTOM_RIGHT_11;   // BOTTOM
       }
 
-      console.log(orderedIndex, point);
+      console.log("point", index, ": orderedIndex:", orderedIndex, point);
+
+      quadrantUsed[orderedIndex] = true;
 
       // create a cloned copy (ahem... a pleonasm... https://en.wikipedia.org/wiki/Pleonasm) at the right position
       this.orderedPoints[orderedIndex] = structuredClone(point);
     });
 
-    console.log(util.inspect(this.orderedPoints));
+    console.log("orderedPoints:", util.inspect(this.orderedPoints));
+
+    // signal error in case the number didn't add up. room for improvement here
+    if (!quadrantUsed[TOP_LEFT_00] || !quadrantUsed[TOP_RIGHT_10] || !quadrantUsed[BOTTOM_RIGHT_11] || !quadrantUsed[BOTTOM_LEFT_01]) return 0;
 
     return numValidPoints;    // orderedPoints now valid
   }
@@ -248,18 +261,19 @@ try {
   let ok = await sensor.initialize();
   if (!ok) { console.log("no sensor found! exiting."); process.exit(1); }
 
+  terminal.terminal.clear();
+
   while (true) {
+
+    // temp
+    terminal.terminal.moveTo(1, 1);
 
     await sensor.getData();
     lightGun.compute(sensor.trackedPoints);
 
-    // temp
-    terminal.terminal.clear();
-    terminal.terminal.moveTo(1, 1);
+    console.log("Lightgun: ", lightGun.hit, lightGun.x.toFixed(2), lightGun.y.toFixed(2));
 
-    console.log("Lightgun: ", lightGun.hit, lightGun.x, lightGun.y);
-
-    await sleep(10);
+    await sleep(100);
   }
 }
 catch (err) {
