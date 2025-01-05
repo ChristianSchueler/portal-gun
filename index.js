@@ -2,7 +2,8 @@ import { openPromisified } from 'i2c-bus';
 import { exit } from 'process';
 import * as util from 'util';
 import Vector from 'vector2js';
-import terminal from 'terminal-kit';
+import Terminal from 'terminal-kit';
+import gpiox from "@iiot2k/gpiox";
 
 // for dfrobot IR sensor cam
 const sensivityBlock1 = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x90, 0x00, 0xC0];
@@ -253,6 +254,29 @@ class LightGun {
 }
 
 // ----- main -----
+
+console.log("Opening GPIO...");
+//console.log(util.inspect(gpiox));
+//gpiox.init_gpio(4, gpiox.GPIO_MODE_INPUT_NOPULL, 10);
+
+gpiox.watch_gpio(4, gpiox.GPIO_MODE_INPUT_NOPULL, 10, gpiox.GPIO_EDGE_BOTH, (state, edge, pin) => {
+  console.log(state, edge, pin);
+});
+
+setTimeout(() => {
+  gpiox.set_gpio(20, 0);
+  gpiox.deinit_gpio(20);
+}, 3000);
+
+//const gpio4 = new Gpio(4, 'in', 'both');
+//gpio4.watch((err, value) => {
+//  console.log(err, value);
+//});
+
+console.log("done.");
+
+await sleep(60*1000);
+
 const sensor = new DfRobotIRSensorCam();
 const lightGun = new LightGun();
 
@@ -261,12 +285,12 @@ try {
   let ok = await sensor.initialize();
   if (!ok) { console.log("no sensor found! exiting."); process.exit(1); }
 
-  terminal.terminal.clear();
+  Terminal.terminal.clear();
 
   while (true) {
 
     // temp
-    terminal.terminal.moveTo(1, 1);
+    Terminal.terminal.moveTo(1, 1);
 
     await sensor.getData();
     lightGun.compute(sensor.trackedPoints);

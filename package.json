@@ -11,6 +11,7 @@
   "author": "Christian Schüler",
   "license": "ISC",
   "dependencies": {
+    "@iiot2k/gpiox": "^2.1.4",
     "i2c-bus": "^5.2.3",
     "terminal-kit": "^3.1.1",
     "vector2js": "^2.0.1"
